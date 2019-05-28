@@ -8,6 +8,7 @@ import java.util.*;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 class VarInfo{
     String type;
@@ -47,6 +48,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     ArrayList<VarInfo> current_callParams;
     VarInfo cur_func_return;
     int isFuncCall;
+    String current_method_type;
     String cur_Expr_type;
     static final String BOOLEAN_TYPE = "boolean";
     static final String INT_TYPE = "int";
@@ -74,6 +76,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
         cur_Expr_type = null;
         current_class = "";
         current_method = null;
+        current_method_type = null;
 
         String init =
         "declare i8* @calloc(i32, i32)\n"+
@@ -177,6 +180,9 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     }
 
     public VarInfo getVarInfoFromIdentifier(String id){
+        if(id.startsWith("%")){
+            return new VarInfo(cur_Expr_type,TEMP_RES,id,id,-1);
+        }
         for (VarInfo v0 : current_args) { //argu vars
             if(v0.getId().equals(id)) return new VarInfo(v0.getType(),FUNC_ARGU,id,v0.getTempName(),-1);
         }
@@ -250,7 +256,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
                     emit(bitcastT+" = bitcast i8* "+elemPtr+" to i32*\n");
                     emit(loadT+" = load i32, i32* "+bitcastT+"\n");
                 }
-                else if(vv.getType().equals(INT_TYPE)){
+                else if(vv.getType().equals(BOOLEAN_TYPE)){
                     emit(bitcastT+" = bitcast i8* "+elemPtr+" to i1*\n");
                     emit(loadT+" = load i1, i1* "+bitcastT+"\n");
                 }
@@ -300,7 +306,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
                 else emit("store i8* "+v_exp_res.getTempName()+", i8** "+v_id.getTempName()+"\n");
             }
         }
-        else if(v_id.getCustomType().equals(CLASS_VAR)){ //store expr result to class var //TODO other types
+        else if(v_id.getCustomType().equals(CLASS_VAR)){
             String loadedVarPtr = loadClassVarPtr(v_id.getId());
 
             if(v_exp_res.getCustomType().equals(LOCAL_VAR) || v_exp_res.getCustomType().equals(FUNC_ARGU)){
@@ -327,7 +333,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
                 else //user-defined type
                       emit("store i8* "+loadedVar2+", i8** "+loadedVarPtr+"\n");
             }
-            else{ //TODO
+            else{
                 if(v_id.getType().equals(INT_TYPE)) emit("store i32 "+v_exp_res.getTempName()+", i32* "+loadedVarPtr+"\n");
                 else if(v_id.getType().equals(BOOLEAN_TYPE)) emit("store i1 "+v_exp_res.getTempName()+", i1* "+loadedVarPtr+"\n");
                 else emit("store i8* "+v_exp_res.getTempName()+", i8** "+loadedVarPtr+"\n");
@@ -407,7 +413,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        for (MethodData m : symbol_table.get(className).getMethods().values()) {
            mcount++;
            vtableCode += "i8* bitcast (";
-           vtableCode += m.getType().equals(INT_TYPE) ? " i32 (i8*" : " i1 (i8*";
+           vtableCode += m.getType().equals(INT_TYPE) ? " i32 (i8*" : " i1 (i8*"; //TODO other types
            for (VarData arg : m.getArgs()) {
                vtableCode += arg.getType().equals(INT_TYPE) ? ", i32" : ", i1";
            }
@@ -437,7 +443,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     public String visit(ClassExtendsDeclaration n, String extra) {
        String _ret=null;
        n.f0.accept(this, null);
-       String className = n.f1.accept(this, null);
+       String className = n.f1.accept(this, null);  //TODO
        current_class = className;
        n.f2.accept(this, null);
        n.f3.accept(this, null);
@@ -475,7 +481,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        code += "@"+current_class+"."+methodName+"(i8* %this ";
        for (VarData arg : m.getArgs()) {
            code += ", ";
-           code += arg.getType().equals(INT_TYPE) ? "i32 %" : "i1 %";
+           code += arg.getType().equals(INT_TYPE) ? "i32 %" : "i1 %"; //TODO other types
            code += arg.getName();
        }
        code += ") {\n";
@@ -497,7 +503,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        n.f8.accept(this, null);
        n.f9.accept(this, null);
        String expr_res = n.f10.accept(this, null);
-       VarInfo vfound = handleExpressionResult(expr_res);
+       VarInfo vfound = handleExpressionResult(expr_res); //TODO refactor this
        if(vfound.getCustomType().equals(INTEGER_LITERAL))  emit("ret i32 "+vfound.getTempName()+"\n");
        else if(vfound.getCustomType().equals(BOOLEAN_LITERAL)) emit("ret i1 "+vfound.getTempName()+"\n");
        else if(vfound.getCustomType().equals(TEMP_RES)){
@@ -597,7 +603,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        String id = n.f0.accept(this, null);
        n.f1.accept(this, null);
        String expr_ret = n.f2.accept(this, null);
-       handleAssignment(id,expr_ret); // TODO
+       handleAssignment(id,expr_ret);
        n.f3.accept(this, null);
        return _ret;
     }
@@ -642,7 +648,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        String else_label = getNewLabel();
        String out_label = getNewLabel();
        n.f1.accept(this, null);
-       String temp = n.f2.accept(this, null); //TODO is there any other except compare?
+       String temp = n.f2.accept(this, null);
        emit("br i1 "+ temp+ ", label %"+if_label+", label %"+else_label+"\n");
        emit(if_label+":\n");
 
@@ -723,7 +729,10 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        else{
            if(v.getType().equals(INT_TYPE)) emit("call void (i32) @print_int(i32 "+ v.getTempName() +")\n");
            else if(v.getType().equals(BOOLEAN_TYPE)) emit("call void (i32) @print_boolean(i1 "+ v.getTempName() +")\n");
-           else emit("call void (i32) @print_int(i32 "+ v.getTempName() +")\n"); //TODO func ret
+           else{
+               if(current_method_type.equals(INT_TYPE)) emit("call void (i32) @print_int(i32 "+ v.getTempName() +")\n");
+               else if (current_method_type.equals(BOOLEAN_TYPE)) emit("call void (i32) @print_boolean(i1 "+ v.getTempName() +")\n");
+           }
        }
 
        n.f3.accept(this, null);
@@ -768,7 +777,9 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
             }
 
         }
-       return n.f0.accept(this, null);
+        String temp = n.f0.accept(this, null);
+        System.out.println("expression returnig: "+temp);
+       return temp;
     }
 
     /**
@@ -795,11 +806,41 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     public String visit(AndExpression n, String extra){
         cur_Expr_type = BOOLEAN_TYPE;
         String _ret=null;
-        n.f0.accept(this, null);
-        n.f1.accept(this, null);
-        n.f2.accept(this, null);
+        String label1 = getNewLabel();
+        String temp1 = n.f0.accept(this, null);
+        VarInfo v1 =getVarInfoFromIdentifier(temp1);
+        if(v1.getCustomType().equals(CLASS_VAR))
+            temp1 = loadClassVar(temp1);
+        else if(v1.getCustomType().equals(LOCAL_VAR) || v1.getCustomType().equals(FUNC_ARGU)){
+            String loadLocal = getNewTemp();
+            emit(loadLocal+" = load i1, i1* "+v1.getTempName()+"\n");
+            temp1 = loadLocal;
+        }
 
-        return _ret;
+        emit("br label %"+ label1+"\n"); //TODO for identifiers
+        emit(label1+":\n");
+        String label2 = getNewLabel();
+        String label3 = getNewLabel();
+        String label4 = getNewLabel();
+        emit("br i1 "+temp1+" , label %"+label2+", label %"+label4+"\n");
+        emit(label2+":\n");
+        n.f1.accept(this, null);
+        String temp2 = n.f2.accept(this, null);
+        VarInfo v2 = getVarInfoFromIdentifier(temp2);
+        if(v2.getCustomType().equals(CLASS_VAR))
+            temp2 = loadClassVar(temp1);
+        else if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+            String loadLocal = getNewTemp();
+            emit(loadLocal+" = load i1, i1* "+v2.getTempName()+"\n");
+            temp2 = loadLocal;
+        }
+        emit("br label %"+label3+"\n");
+        emit(label3+":\n");
+        emit("br label %"+label4+"\n");
+        emit(label4+":\n");
+        String ret_temp = getNewTemp();
+        emit(ret_temp+" = phi i1 [0, %"+label1+"], [ "+temp2+" ,%"+label3+" ]\n");
+        return ret_temp;
     }
 
     /**
@@ -829,14 +870,14 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
                 }
             }
             else if(v2.getCustomType().equals(CLASS_VAR)){
-                String loadedVar2 = loadClassVar(v2.getId());//TODO
+                String loadedVar2 = loadClassVar(v2.getId());
                 if(v2.getType().equals(INT_TYPE))
                     emit(ret_temp+" = icmp slt i32 "+loadLocal+", "+loadedVar2+"\n");
             }
             else
                 if(v2.getType().equals(INT_TYPE))  emit(ret_temp+" = icmp slt i32 "+loadLocal+", "+v2.getTempName()+"\n");
         }
-        else if(v1.getCustomType().equals(CLASS_VAR)){ //store expr result to class var //TODO other types
+        else if(v1.getCustomType().equals(CLASS_VAR)){
             String loadedVar = loadClassVar(v1.getId());
 
             if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
@@ -872,6 +913,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
             else
                 if(v2.getType().equals(INT_TYPE)) emit(ret_temp+" = icmp slt i32 "+v1.getTempName()+", "+v2.getTempName()+"\n");
         }
+        System.out.println("compare returning: "+ret_temp);
         return ret_temp;
     }
 
@@ -887,7 +929,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
         VarInfo v1 = handleExpressionResult(id1);
         String id2 = n.f2.accept(this, null);
         VarInfo v2 = handleExpressionResult(id2);
-        cur_Expr_type = BOOLEAN_TYPE;
+        cur_Expr_type = INT_TYPE;
         System.out.println("add: "+id1+" + "+id2+" -> "+v1.getCustomType()+" / "+v2.getCustomType());
         String ret_temp = getNewTemp();
         if(v1.getCustomType().equals(LOCAL_VAR) || v1.getCustomType().equals(FUNC_ARGU) ){
@@ -902,14 +944,14 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
                 }
             }
             else if(v2.getCustomType().equals(CLASS_VAR)){
-                String loadedVar2 = loadClassVar(v2.getId());//TODO
+                String loadedVar2 = loadClassVar(v2.getId());
                 if(v2.getType().equals(INT_TYPE))
                     emit(ret_temp+" = add i32 "+loadLocal+", "+loadedVar2+"\n");
             }
             else
                 if(v2.getType().equals(INT_TYPE))  emit(ret_temp+" = add i32 "+loadLocal+", "+v2.getTempName()+"\n");
         }
-        else if(v1.getCustomType().equals(CLASS_VAR)){ //store expr result to class var //TODO other types
+        else if(v1.getCustomType().equals(CLASS_VAR)){
             String loadedVar = loadClassVar(v1.getId());
 
             if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
@@ -956,38 +998,69 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     public String visit(MinusExpression n, String extra){
         cur_Expr_type = INT_TYPE;
         String _ret=null;
-        String newTemp = getNewTemp();
-        String toEmit = newTemp + " = sub i32 ";
-
         String id1 = n.f0.accept(this, null);
-        if(this.isExprRetIntLiteral)
-             toEmit += id1+", ";
-        else{
-            for (VarInfo v : current_vars) { // if primary expr is local var
-                if(v.getId().equals(id1)){
-                    String loadT = getNewTemp();
-                    emit(loadT+" = load i32, i32* "+v.getTempName() +"\n");
-                    toEmit += loadT + ", "; //TODO change for bracket expr
-                }
-            }
-        }
         n.f1.accept(this, null);
+        VarInfo v1 = handleExpressionResult(id1);
         String id2 = n.f2.accept(this, null);
+        VarInfo v2 = handleExpressionResult(id2);
+        System.out.println("sub: "+id1+" - "+id2+" -> "+v1.getCustomType()+" / "+v2.getCustomType());
+        String ret_temp = getNewTemp();
+        if(v1.getCustomType().equals(LOCAL_VAR) || v1.getCustomType().equals(FUNC_ARGU) ){
 
-        if(this.isExprRetIntLiteral)
-             toEmit += id2+"\n";
-        else{
-            for (VarInfo v : current_vars) {
-                if(v.getId().equals(id2)){
-                    String loadT = getNewTemp();
-                    emit(loadT+" = load i32, i32* "+v.getTempName()+"\n");
-                    toEmit += loadT + "\n";
+            String loadLocal = getNewTemp();
+            emit(loadLocal+" = load i32, i32* "+v1.getTempName()+"\n");
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = sub i32 "+loadLocal+", "+loadLocal2+"\n");
+                }
+            }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                    emit(ret_temp+" = sub i32 "+loadLocal+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE))  emit(ret_temp+" = sub i32 "+loadLocal+", "+v2.getTempName()+"\n");
+        }
+        else if(v1.getCustomType().equals(CLASS_VAR)){
+            String loadedVar = loadClassVar(v1.getId());
+
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = sub i32 "+loadedVar+", "+loadLocal2+"\n");
                 }
 
             }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                      emit(ret_temp+" = sub i32 "+loadedVar+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE)) emit(ret_temp+" = sub i32 "+loadedVar+", "+v2.getTempName()+"\n");
         }
-        emit(toEmit);
-        return newTemp;
+        else{
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = sub i32 "+v1.getTempName()+", "+loadLocal2+"\n");
+                }
+
+            }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                      emit(ret_temp+" = sub i32 "+v1.getTempName()+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE)) emit(ret_temp+" = sub i32 "+v1.getTempName()+", "+v2.getTempName()+"\n");
+        }
+        return ret_temp;
     }
 
     /**
@@ -997,39 +1070,69 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
      */
     public String visit(TimesExpression n, String extra){
         cur_Expr_type = INT_TYPE;
-        String _ret=null;
-        String newTemp = getNewTemp();
-        String toEmit = newTemp + " = mul i32 ";
-
         String id1 = n.f0.accept(this, null);
-        if(this.isExprRetIntLiteral)
-             toEmit += id1+", ";
-        else{
-            for (VarInfo v : current_vars) { // if primary expr is local var
-                if(v.getId().equals(id1)){
-                    String loadT = getNewTemp();
-                    emit(loadT+" = load i32, i32* "+v.getTempName() +"\n");
-                    toEmit += loadT + ", "; //TODO change for bracket expr
-                }
-            }
-        }
         n.f1.accept(this, null);
+        VarInfo v1 = handleExpressionResult(id1);
         String id2 = n.f2.accept(this, null);
+        VarInfo v2 = handleExpressionResult(id2);
+        System.out.println("mul: "+id1+" * "+id2+" -> "+v1.getCustomType()+" / "+v2.getCustomType());
+        String ret_temp = getNewTemp();
+        if(v1.getCustomType().equals(LOCAL_VAR) || v1.getCustomType().equals(FUNC_ARGU) ){
 
-        if(this.isExprRetIntLiteral)
-             toEmit += id2+"\n";
-        else{
-            for (VarInfo v : current_vars) {
-                if(v.getId().equals(id2)){
-                    String loadT = getNewTemp();
-                    emit(loadT+" = load i32, i32* "+v.getTempName()+"\n");
-                    toEmit += loadT + "\n";
+            String loadLocal = getNewTemp();
+            emit(loadLocal+" = load i32, i32* "+v1.getTempName()+"\n");
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = mul i32 "+loadLocal+", "+loadLocal2+"\n");
+                }
+            }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                    emit(ret_temp+" = mul i32 "+loadLocal+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE))  emit(ret_temp+" = mul i32 "+loadLocal+", "+v2.getTempName()+"\n");
+        }
+        else if(v1.getCustomType().equals(CLASS_VAR)){
+            String loadedVar = loadClassVar(v1.getId());
+
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = mul i32 "+loadedVar+", "+loadLocal2+"\n");
                 }
 
             }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                      emit(ret_temp+" = mul i32 "+loadedVar+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE)) emit(ret_temp+" = mul i32 "+loadedVar+", "+v2.getTempName()+"\n");
         }
-        emit(toEmit);
-        return newTemp;
+        else{
+            if(v2.getCustomType().equals(LOCAL_VAR) || v2.getCustomType().equals(FUNC_ARGU)){
+                String loadLocal2 = getNewTemp();
+                if(v2.getType().equals(INT_TYPE)){
+                    emit(loadLocal2+" = load i32, i32* "+v2.getTempName()+"\n");
+                    emit(ret_temp+" = mul i32 "+v1.getTempName()+", "+loadLocal2+"\n");
+                }
+
+            }
+            else if(v2.getCustomType().equals(CLASS_VAR)){
+                String loadedVar2 = loadClassVar(v2.getId());
+                if(v2.getType().equals(INT_TYPE))
+                      emit(ret_temp+" = mul i32 "+v1.getTempName()+", "+loadedVar2+"\n");
+            }
+            else
+                if(v2.getType().equals(INT_TYPE)) emit(ret_temp+" = mul i32 "+v1.getTempName()+", "+v2.getTempName()+"\n");
+        }
+        return ret_temp;
     }
 
     /**
@@ -1082,7 +1185,12 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        n.f1.accept(this, null);
        String mName = n.f2.accept(this, null);
        n.f3.accept(this, null);
-       VarInfo v0 = handleExpressionResult(obj);
+       VarInfo v0;
+       if(obj.equals("this"))
+           v0 = new VarInfo(current_class,"this","this",null,-1);
+       else
+           v0 = handleExpressionResult(obj);
+
        int method_vtable_offset = getMethodOffset(v0.getType(),mName) / 8;
        String castAddress = getNewTemp();
 
@@ -1092,8 +1200,13 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
             code += loadLocal+" = load i8*, i8** "+v0.getTempName()+"\n";
             code += castAddress+" = bitcast i8* "+loadLocal+" to i8***\n";
        }
-       else if(v0.getCustomType().equals(LOCAL_VAR)){
+       else if(v0.getCustomType().equals(CLASS_VAR)){
            //TODO
+           String loadedVar = loadClassVar(v0.getId());
+           code += castAddress+" = bitcast i8* "+loadedVar+" to i8***\n";
+       }
+       else if(v0.getCustomType().equals("this")){
+           code += castAddress+" = bitcast i8* %this to i8***\n";
        }
        String loadT = getNewTemp();
        code += loadT+" = load i8**, i8*** "+castAddress+"\n";
@@ -1103,6 +1216,7 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
        code += loadFunc+" = load i8*, i8** "+vtable0+"\n";
 
        MethodData m = symbol_table.get(cur_Expr_type).getMethods().get(mName);
+       current_method_type = symbol_table.get(cur_Expr_type).getMethods().get(mName).getType();
 
        n.f4.accept(this, null);
        isFuncCall = 0;
@@ -1157,9 +1271,10 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
      */
     public String visit(BracketExpression n, String extra) {
        n.f0.accept(this, null);
-       n.f1.accept(this, null);
+       String temp = n.f1.accept(this, null);
        n.f2.accept(this, null);
-       return null;
+       System.out.println("bracket returning: "+temp);
+       return temp;
     }
 
     /**
@@ -1260,7 +1375,9 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
      *       | PrimaryExpression()
      */
     public String visit(Clause n, String extra) {
-       return n.f0.accept(this, null);
+        String temp = n.f0.accept(this, null);
+        System.out.println("clause returning: "+temp);
+       return temp;
     }
 
     /**
@@ -1270,8 +1387,43 @@ public class LLVMVisitor extends GJDepthFirst<String,String> {
     public String visit(NotExpression n, String extra){
         cur_Expr_type = BOOLEAN_TYPE;
        n.f0.accept(this, null);
-       n.f1.accept(this, null);
-       return BOOLEAN_TYPE;
+       String temp = n.f1.accept(this, null);
+       VarInfo v1 = handleExpressionResult(temp);
+       String ret_temp = getNewTemp();
+       if(v1.getCustomType().equals(LOCAL_VAR) || v1.getCustomType().equals(FUNC_ARGU) ){
+
+           String loadLocal = getNewTemp();
+           if(v1.getType().equals(INT_TYPE)){
+                emit(loadLocal+" = load i32, i32* "+v1.getTempName()+"\n");
+                emit(ret_temp+" = icmp eq i32 "+loadLocal+", 0 \n");
+            }
+           else if (v1.getType().equals(BOOLEAN_TYPE)){
+                emit(loadLocal+" = load i1, i1* "+v1.getTempName()+"\n");
+                emit(ret_temp+" = icmp eq i1 "+loadLocal+", 0 \n");
+            }
+
+       }
+       else if(v1.getCustomType().equals(CLASS_VAR)){
+           String loadedVar = loadClassVar(v1.getId());
+
+           if(v1.getType().equals(INT_TYPE)){
+                emit(ret_temp+" = icmp eq i32 "+loadedVar+", 0 \n");
+            }
+           else if (v1.getType().equals(BOOLEAN_TYPE)){
+               emit(ret_temp+" = icmp eq i1 "+loadedVar+", 0 \n");
+            }
+
+       }
+       else{
+           if(v1.getType().equals(INT_TYPE)){
+                emit(ret_temp+" = icmp eq i32 "+v1.getTempName()+", 0 \n");
+            }
+           else if (v1.getType().equals(BOOLEAN_TYPE)){
+                emit(ret_temp+" = icmp eq i1 "+v1.getTempName()+", 0 \n");
+            }
+       }
+
+       return ret_temp;
     }
 
     /**
